@@ -1,0 +1,6 @@
+{
+  "name": "Singapore Live Weather",
+  "description": "Live Singapore weather conditions, temperature, humidity, rainfall status, wind speed, and 24-hour forecasts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
