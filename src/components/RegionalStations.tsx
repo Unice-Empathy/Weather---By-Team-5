@@ -8,7 +8,7 @@ interface RegionalStationsProps {
 }
 
 const SINGAPORE_STATIONS = [
-  { id: 'Singapore', name: 'Singapore (Central)', zone: 'Central', desc: 'Central City & Downtown Core' },
+  { id: 'City', name: 'City (Central)', zone: 'Central', desc: 'Central City & Downtown Core' },
   { id: 'Marina Bay', name: 'Marina Bay', zone: 'South', desc: 'Coastal bay & financial district' },
   { id: 'Changi', name: 'Changi', zone: 'East', desc: 'Eastern coastal airport corridor' },
   { id: 'Sentosa', name: 'Sentosa Island', zone: 'South', desc: 'Southern resort archipelago' },
@@ -24,11 +24,11 @@ export const RegionalStations: React.FC<RegionalStationsProps> = ({
   isLoading
 }) => {
   return (
-    <section className="space-y-4">
+    <section className="bg-white/90 backdrop-blur-md border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-sm space-y-4">
       <div>
-        <h2 className="text-xl font-bold text-white tracking-tight">Regional Weather Stations</h2>
-        <p className="text-xs text-slate-400 mt-0.5">
-          Select a regional observation post across the island to observe local readings
+        <h2 className="text-xl font-bold text-slate-900 tracking-tight">Regional Weather Stations</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Select a regional observation post across the island to focus local microclimate readings
         </p>
       </div>
 
@@ -36,7 +36,7 @@ export const RegionalStations: React.FC<RegionalStationsProps> = ({
         {SINGAPORE_STATIONS.map((station) => {
           const isSelected =
             currentLocation.toLowerCase() === station.id.toLowerCase() ||
-            (station.id === 'Singapore' && currentLocation.toLowerCase().includes('singapore'));
+            (station.id === 'City' && (currentLocation.toLowerCase().includes('singapore') || currentLocation.toLowerCase().includes('city')));
 
           return (
             <button
@@ -45,22 +45,22 @@ export const RegionalStations: React.FC<RegionalStationsProps> = ({
               disabled={isLoading}
               className={`p-4 rounded-xl border text-left transition-all ${
                 isSelected
-                  ? 'bg-slate-900 border-cyan-500/80 shadow-md ring-1 ring-cyan-500/30'
-                  : 'bg-slate-900/50 border-slate-800 hover:border-slate-700 hover:bg-slate-900/80'
+                  ? 'bg-cyan-50/70 border-cyan-500 shadow-sm ring-1 ring-cyan-500/30'
+                  : 'bg-slate-50 hover:bg-white border-slate-200 hover:border-slate-300'
               }`}
             >
-              <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
                 <span>{station.zone} Zone</span>
                 {isSelected && (
-                  <span className="flex items-center gap-1 text-cyan-400 font-medium">
-                    <Navigation className="w-3 h-3 fill-cyan-400" /> Active
+                  <span className="flex items-center gap-1 text-cyan-700 font-semibold">
+                    <Navigation className="w-3 h-3 fill-cyan-600" /> Active
                   </span>
                 )}
               </div>
-              <div className="text-base font-semibold text-white">
+              <div className="text-sm font-bold text-slate-900">
                 {station.name}
               </div>
-              <p className="text-xs text-slate-400 mt-1 truncate">
+              <p className="text-xs text-slate-500 mt-1 truncate">
                 {station.desc}
               </p>
             </button>

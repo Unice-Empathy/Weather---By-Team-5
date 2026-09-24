@@ -2,8 +2,21 @@ import express from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { handleWeatherRequest, handleHealthRequest } from './api/weather-service.js';
-import { handlePsiRequest, handleTwoHourForecastRequest } from './api/open-data-service.js';
+import {
+  handleConsolidatedWeather,
+  handleNeaHealth,
+  handleTwoHrForecast,
+  handleTwentyFourHrForecast,
+  handleFourDayOutlook,
+  handleAirTemperature,
+  handleRainfall,
+  handlePsi,
+  handlePm25,
+  handleUv,
+  handleRelativeHumidity,
+  handleWindSpeed,
+  handleAllEndpointsSummary
+} from './api/nea-service.js';
 
 dotenv.config();
 
@@ -17,11 +30,22 @@ async function startServer() {
 
   app.use(express.json());
 
-  // API endpoints registered via shared weather service
-  app.get('/api/weather', handleWeatherRequest);
-  app.get('/api/health', handleHealthRequest);
-  app.get('/api/psi', handlePsiRequest);
-  app.get('/api/two-hr-forecast', handleTwoHourForecastRequest);
+  // 10 Official Singapore Data.gov.sg / NEA Real-Time Open Data Endpoints
+  app.get('/api/two-hr-forecast', handleTwoHrForecast);
+  app.get('/api/twenty-four-hr-forecast', handleTwentyFourHrForecast);
+  app.get('/api/four-day-outlook', handleFourDayOutlook);
+  app.get('/api/air-temperature', handleAirTemperature);
+  app.get('/api/rainfall', handleRainfall);
+  app.get('/api/psi', handlePsi);
+  app.get('/api/pm25', handlePm25);
+  app.get('/api/uv', handleUv);
+  app.get('/api/relative-humidity', handleRelativeHumidity);
+  app.get('/api/wind-speed', handleWindSpeed);
+
+  // Consolidated Weather & Diagnostic Endpoints
+  app.get('/api/weather', handleConsolidatedWeather);
+  app.get('/api/health', handleNeaHealth);
+  app.get('/api/all-endpoints', handleAllEndpointsSummary);
 
   if (!isProduction) {
     const { createServer: createViteServer } = await import('vite');

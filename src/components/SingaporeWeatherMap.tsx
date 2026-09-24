@@ -1,7 +1,22 @@
-import React, { useState, useMemo } from 'react';
-import { AreaForecast, TwoHourForecastData, PsiData } from '../types';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { TwoHourForecastData, PsiData } from '../types';
 import { getWeatherIcon } from '../utils/weatherIcons';
-import { MapPin, Navigation, Wind, CloudRain, Thermometer, Layers, Check, Search } from 'lucide-react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import {
+  Layers,
+  MapPin,
+  Navigation,
+  Check,
+  Search,
+  ExternalLink,
+  ShieldCheck,
+  Compass,
+  Maximize2,
+  Minimize2,
+  Droplets,
+  Wind
+} from 'lucide-react';
 
 interface SingaporeWeatherMapProps {
   currentLocation: string;
@@ -19,51 +34,90 @@ interface MapLocation {
   lon: number;
 }
 
-// Key Singapore Locations with accurate geographic coordinates
-const SINGAPORE_LOCATIONS: MapLocation[] = [
+// SLA OneMap Basemap options
+type OneMapStyle = 'Default' | 'Grey' | 'Original' | 'Night';
+
+const ONEMAP_STYLES: { id: OneMapStyle; name: string; desc: string; url: string }[] = [
+  {
+    id: 'Default',
+    name: 'OneMap Default',
+    desc: 'Official Full-Color SLA Map',
+    url: 'https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png'
+  },
+  {
+    id: 'Grey',
+    name: 'OneMap Grey',
+    desc: 'Minimalist Clean Light Theme',
+    url: 'https://www.onemap.gov.sg/maps/tiles/Grey/{z}/{x}/{y}.png'
+  },
+  {
+    id: 'Original',
+    name: 'OneMap Classic',
+    desc: 'Original Topographic Scheme',
+    url: 'https://www.onemap.gov.sg/maps/tiles/Original/{z}/{x}/{y}.png'
+  },
+  {
+    id: 'Night',
+    name: 'OneMap Night',
+    desc: 'Dark Contrast Cartography',
+    url: 'https://www.onemap.gov.sg/maps/tiles/Night/{z}/{x}/{y}.png'
+  }
+];
+
+// All Singapore Planning Areas matching NEA 2-hour nowcast feeds
+const ALL_SINGAPORE_AREAS: MapLocation[] = [
   { name: 'City', region: 'South', lat: 1.292, lon: 103.844 },
   { name: 'Marina Bay', region: 'South', lat: 1.282, lon: 103.858 },
   { name: 'Sentosa', region: 'South', lat: 1.243, lon: 103.832 },
   { name: 'Queenstown', region: 'South', lat: 1.291, lon: 103.786 },
+  { name: 'Bukit Merah', region: 'South', lat: 1.282, lon: 103.818 },
+  { name: 'Southern Islands', region: 'South', lat: 1.220, lon: 103.835 },
 
   { name: 'Ang Mo Kio', region: 'Central', lat: 1.375, lon: 103.839 },
   { name: 'Bishan', region: 'Central', lat: 1.351, lon: 103.839 },
   { name: 'Toa Payoh', region: 'Central', lat: 1.334, lon: 103.856 },
   { name: 'Bukit Timah', region: 'Central', lat: 1.325, lon: 103.791 },
+  { name: 'Novena', region: 'Central', lat: 1.320, lon: 103.843 },
+  { name: 'Tanglin', region: 'Central', lat: 1.306, lon: 103.812 },
+  { name: 'Kallang', region: 'Central', lat: 1.311, lon: 103.863 },
+  { name: 'Central Water Catchment', region: 'Central', lat: 1.365, lon: 103.815 },
 
   { name: 'Changi', region: 'East', lat: 1.357, lon: 103.987 },
   { name: 'Bedok', region: 'East', lat: 1.321, lon: 103.924 },
   { name: 'Tampines', region: 'East', lat: 1.345, lon: 103.944 },
   { name: 'Pasir Ris', region: 'East', lat: 1.370, lon: 103.948 },
   { name: 'Paya Lebar', region: 'East', lat: 1.358, lon: 103.914 },
+  { name: 'Geylang', region: 'East', lat: 1.318, lon: 103.886 },
+  { name: 'Marine Parade', region: 'East', lat: 1.303, lon: 103.907 },
+  { name: 'Pulau Ubin', region: 'East', lat: 1.412, lon: 103.957 },
+  { name: 'Pulau Tekong', region: 'East', lat: 1.405, lon: 104.053 },
 
   { name: 'Jurong East', region: 'West', lat: 1.326, lon: 103.737 },
   { name: 'Jurong West', region: 'West', lat: 1.340, lon: 103.705 },
   { name: 'Clementi', region: 'West', lat: 1.315, lon: 103.760 },
   { name: 'Bukit Batok', region: 'West', lat: 1.353, lon: 103.754 },
+  { name: 'Bukit Panjang', region: 'West', lat: 1.378, lon: 103.763 },
+  { name: 'Choa Chu Kang', region: 'West', lat: 1.384, lon: 103.747 },
+  { name: 'Tengah', region: 'West', lat: 1.360, lon: 103.730 },
   { name: 'Tuas', region: 'West', lat: 1.295, lon: 103.635 },
+  { name: 'Pioneer', region: 'West', lat: 1.315, lon: 103.697 },
   { name: 'Boon Lay', region: 'West', lat: 1.304, lon: 103.701 },
+  { name: 'Jalan Bahar', region: 'West', lat: 1.348, lon: 103.684 },
+  { name: 'Jurong Island', region: 'West', lat: 1.266, lon: 103.700 },
+  { name: 'Western Water Catchment', region: 'West', lat: 1.390, lon: 103.680 },
 
   { name: 'Woodlands', region: 'North', lat: 1.432, lon: 103.786 },
   { name: 'Yishun', region: 'North', lat: 1.418, lon: 103.839 },
   { name: 'Sembawang', region: 'North', lat: 1.445, lon: 103.818 },
   { name: 'Punggol', region: 'North', lat: 1.401, lon: 103.904 },
-  { name: 'Sengkang', region: 'North', lat: 1.384, lon: 103.891 }
+  { name: 'Sengkang', region: 'North', lat: 1.384, lon: 103.891 },
+  { name: 'Hougang', region: 'North', lat: 1.371, lon: 103.892 },
+  { name: 'Serangoon', region: 'North', lat: 1.355, lon: 103.872 },
+  { name: 'Seletar', region: 'North', lat: 1.409, lon: 103.870 },
+  { name: 'Mandai', region: 'North', lat: 1.423, lon: 103.792 },
+  { name: 'Lim Chu Kang', region: 'North', lat: 1.435, lon: 103.712 },
+  { name: 'Sungei Kadut', region: 'North', lat: 1.415, lon: 103.745 }
 ];
-
-// SVG projection constants
-const MIN_LON = 103.60;
-const MAX_LON = 104.04;
-const MIN_LAT = 1.18;
-const MAX_LAT = 1.48;
-const SVG_WIDTH = 900;
-const SVG_HEIGHT = 500;
-
-function projectToSvg(lat: number, lon: number): { x: number; y: number } {
-  const x = ((lon - MIN_LON) / (MAX_LON - MIN_LON)) * (SVG_WIDTH - 120) + 60;
-  const y = ((MAX_LAT - lat) / (MAX_LAT - MIN_LAT)) * (SVG_HEIGHT - 100) + 50;
-  return { x: Math.round(x), y: Math.round(y) };
-}
 
 export const SingaporeWeatherMap: React.FC<SingaporeWeatherMapProps> = ({
   currentLocation,
@@ -73,12 +127,18 @@ export const SingaporeWeatherMap: React.FC<SingaporeWeatherMapProps> = ({
   currentTemp = 31,
   currentCondition = 'Partly Cloudy'
 }) => {
-  const [selectedRegion, setSelectedRegion] = useState<string>('All');
-  const [hoveredLocation, setHoveredLocation] = useState<MapLocation | null>(null);
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [mapMode, setMapMode] = useState<'weather' | 'psi'>('weather');
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<L.Map | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+  const markersLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // Map town forecasts to names
+  const [oneMapStyle, setOneMapStyle] = useState<OneMapStyle>('Default');
+  const [mapMode, setMapMode] = useState<'weather' | 'psi'>('weather');
+  const [selectedRegion, setSelectedRegion] = useState<string>('All');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
+
+  // Map town forecasts to lowercase names
   const forecastMap = useMemo(() => {
     const map = new Map<string, string>();
     if (nowcastData && nowcastData.forecasts) {
@@ -91,334 +151,424 @@ export const SingaporeWeatherMap: React.FC<SingaporeWeatherMapProps> = ({
 
   // Filter locations
   const filteredLocations = useMemo(() => {
-    return SINGAPORE_LOCATIONS.filter((loc) => {
+    return ALL_SINGAPORE_AREAS.filter((loc) => {
       const matchesRegion = selectedRegion === 'All' || loc.region === selectedRegion;
       const matchesSearch = loc.name.toLowerCase().includes(searchTerm.toLowerCase());
       return matchesRegion && matchesSearch;
     });
   }, [selectedRegion, searchTerm]);
 
-  // Selected location details
-  const activeLocObj = useMemo(() => {
-    return (
-      SINGAPORE_LOCATIONS.find(
-        (l) => l.name.toLowerCase() === currentLocation.toLowerCase() ||
-               currentLocation.toLowerCase().includes(l.name.toLowerCase())
-      ) || SINGAPORE_LOCATIONS[0]
-    );
-  }, [currentLocation]);
+  // Initialize SLA OneMap Leaflet instance
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+    if (mapInstanceRef.current) return;
+
+    // Bounds for Singapore to prevent panning into outer oceans
+    const southWest = L.latLng(1.13, 103.55);
+    const northEast = L.latLng(1.49, 104.12);
+    const bounds = L.latLngBounds(southWest, northEast);
+
+    const map = L.map(mapContainerRef.current, {
+      center: [1.3521, 103.8198],
+      zoom: 12,
+      minZoom: 11,
+      maxZoom: 18,
+      maxBounds: bounds,
+      maxBoundsViscosity: 0.8,
+      zoomControl: false
+    });
+
+    // SLA OneMap TileLayer with official attribution
+    const currentStyleObj = ONEMAP_STYLES.find((s) => s.id === oneMapStyle) || ONEMAP_STYLES[0];
+    const tileLayer = L.tileLayer(currentStyleObj.url, {
+      minZoom: 11,
+      maxZoom: 18,
+      attribution:
+        '&copy; <a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a> &copy; <a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority (SLA)</a>'
+    }).addTo(map);
+
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+    const markersGroup = L.layerGroup().addTo(map);
+
+    mapInstanceRef.current = map;
+    tileLayerRef.current = tileLayer;
+    markersLayerRef.current = markersGroup;
+
+    return () => {
+      map.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  // Update SLA OneMap Basemap Tile Layer when style changes
+  useEffect(() => {
+    if (!mapInstanceRef.current || !tileLayerRef.current) return;
+    const styleObj = ONEMAP_STYLES.find((s) => s.id === oneMapStyle) || ONEMAP_STYLES[0];
+
+    tileLayerRef.current.setUrl(styleObj.url);
+  }, [oneMapStyle]);
+
+  // Render Custom Interactive Weather & PSI Markers onto SLA OneMap
+  useEffect(() => {
+    if (!mapInstanceRef.current || !markersLayerRef.current) return;
+
+    markersLayerRef.current.clearLayers();
+
+    filteredLocations.forEach((loc) => {
+      const isSelected =
+        loc.name.toLowerCase() === currentLocation.toLowerCase() ||
+        currentLocation.toLowerCase().includes(loc.name.toLowerCase());
+
+      const forecast = forecastMap.get(loc.name.toLowerCase()) || 'Partly Cloudy';
+      const isRain =
+        forecast.toLowerCase().includes('rain') ||
+        forecast.toLowerCase().includes('shower') ||
+        forecast.toLowerCase().includes('thunder');
+
+      const regionLower = loc.region.toLowerCase();
+      const regionPsi = psiData?.regions?.[regionLower]?.psi ?? 58;
+
+      let iconHtml = '';
+
+      if (mapMode === 'weather') {
+        iconHtml = `
+          <div class="relative flex flex-col items-center cursor-pointer group transition-transform ${isSelected ? 'scale-110 z-30' : 'hover:scale-105 z-10'}">
+            ${isSelected ? '<span class="absolute -inset-2 rounded-full bg-cyan-500/30 animate-ping"></span>' : ''}
+            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shadow-md transition-all ${
+              isSelected
+                ? 'bg-cyan-600 text-white border-2 border-white ring-2 ring-cyan-500 shadow-cyan-500/30'
+                : isRain
+                ? 'bg-white/95 text-sky-800 border border-sky-300 hover:border-sky-500 shadow-sm'
+                : 'bg-white/95 text-slate-800 border border-slate-300 hover:border-cyan-500 shadow-sm'
+            }">
+              <span class="w-2 h-2 rounded-full ${isSelected ? 'bg-white' : isRain ? 'bg-sky-500' : 'bg-amber-500'}"></span>
+              <span class="whitespace-nowrap">${loc.name}</span>
+            </div>
+            <div class="mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-medium shadow-xs border ${
+              isSelected
+                ? 'bg-slate-900 text-cyan-300 border-slate-700'
+                : 'bg-white/90 text-slate-600 border-slate-200'
+            }">
+              ${forecast}
+            </div>
+          </div>
+        `;
+      } else {
+        // PSI mode
+        const bandColor =
+          regionPsi <= 50
+            ? 'bg-emerald-500 text-white'
+            : regionPsi <= 100
+            ? 'bg-teal-600 text-white'
+            : 'bg-amber-600 text-white';
+
+        iconHtml = `
+          <div class="relative flex flex-col items-center cursor-pointer group transition-transform ${isSelected ? 'scale-110 z-30' : 'hover:scale-105 z-10'}">
+            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold shadow-md border ${
+              isSelected ? 'border-2 border-cyan-400 ring-2 ring-cyan-500' : 'border-white'
+            } ${bandColor}">
+              <span class="font-mono">PSI ${regionPsi}</span>
+              <span class="text-[10px] opacity-90">${loc.name}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      const customIcon = L.divIcon({
+        className: 'onemap-custom-marker',
+        html: iconHtml,
+        iconSize: [120, 48],
+        iconAnchor: [60, 24]
+      });
+
+      const marker = L.marker([loc.lat, loc.lon], { icon: customIcon });
+
+      marker.on('click', () => {
+        onSelectLocation(loc.name);
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.flyTo([loc.lat, loc.lon], 13, { duration: 0.8 });
+        }
+      });
+
+      // Popup with full microclimate summary
+      const popupContent = `
+        <div class="p-3 text-slate-800 font-sans text-xs space-y-2">
+          <div class="flex items-center justify-between border-b border-slate-200 pb-1.5">
+            <strong class="text-sm font-bold text-slate-900">${loc.name}</strong>
+            <span class="text-[10px] uppercase font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">${loc.region} Region</span>
+          </div>
+          <div class="space-y-1">
+            <div class="flex justify-between">
+              <span class="text-slate-500">2-Hr Nowcast:</span>
+              <span class="font-semibold text-cyan-700">${forecast}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Regional PSI:</span>
+              <span class="font-mono font-semibold text-teal-700">${regionPsi}</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-500">Coordinates:</span>
+              <span class="font-mono text-slate-500">${loc.lat.toFixed(3)}°N, ${loc.lon.toFixed(3)}°E</span>
+            </div>
+          </div>
+          <div class="pt-1.5 text-[10px] text-cyan-700 font-medium flex items-center gap-1">
+            <span>● Official SLA OneMap Cadastral Layer</span>
+          </div>
+        </div>
+      `;
+
+      marker.bindPopup(popupContent, { offset: [0, -16] });
+      markersLayerRef.current?.addLayer(marker);
+    });
+  }, [filteredLocations, currentLocation, forecastMap, psiData, mapMode, onSelectLocation]);
+
+  // Pan to selected region or location
+  const handlePanTo = (lat: number, lon: number, zoom = 13) => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([lat, lon], zoom, { duration: 0.9 });
+    }
+  };
+
+  const handleResetSingapore = () => {
+    if (mapInstanceRef.current) {
+      mapInstanceRef.current.flyTo([1.3521, 103.8198], 12, { duration: 0.8 });
+    }
+    setSelectedRegion('All');
+  };
 
   return (
-    <section className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 shadow-sm space-y-5 animate-fade-in">
-      {/* Map Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+    <section className="bg-white/95 backdrop-blur-md border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-sm space-y-5 animate-fade-in text-slate-800">
+      {/* SLA OneMap Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/80 pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <Navigation className="w-4 h-4 text-cyan-400" />
-            <h2 className="text-xl font-bold text-white tracking-tight">Interactive Singapore Weather Map</h2>
+            <div className="p-1.5 bg-red-50 border border-red-200 rounded-lg text-red-600">
+              <Compass className="w-4 h-4" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+              <span>SLA OneMap Singapore</span>
+              <span className="text-xs font-semibold px-2 py-0.5 bg-red-100 text-red-700 rounded-md border border-red-200">
+                Official SLA Basemap
+              </span>
+            </h2>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Click any location to update all live weather parameters for that area
+          <p className="text-xs text-slate-500 mt-1">
+            Authoritative national geospatial base layers powered by Singapore Land Authority (SLA) OneMap
           </p>
         </div>
 
-        {/* Region & Mode Toggles */}
+        {/* Top Controls: SLA Basemap Selector & Mode */}
         <div className="flex flex-wrap items-center gap-2">
-          {/* Mode toggle */}
-          <div className="flex items-center bg-slate-950 border border-slate-800 p-1 rounded-lg text-xs font-medium">
+          {/* Basemap Style Switcher */}
+          <div className="flex items-center bg-slate-100 border border-slate-200 p-1 rounded-xl text-xs">
+            <span className="text-[11px] font-semibold text-slate-500 px-2 flex items-center gap-1">
+              <Layers className="w-3.5 h-3.5 text-slate-600" />
+              SLA Layer:
+            </span>
+            {ONEMAP_STYLES.map((style) => (
+              <button
+                key={style.id}
+                onClick={() => setOneMapStyle(style.id)}
+                title={style.desc}
+                className={`px-2.5 py-1 rounded-lg transition-colors font-medium ${
+                  oneMapStyle === style.id
+                    ? 'bg-white text-slate-900 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {style.id}
+              </button>
+            ))}
+          </div>
+
+          {/* Data Mode Switcher */}
+          <div className="flex items-center bg-slate-100 border border-slate-200 p-1 rounded-xl text-xs font-medium">
             <button
               onClick={() => setMapMode('weather')}
-              className={`px-2.5 py-1 rounded-md transition-colors ${
+              className={`px-3 py-1 rounded-lg transition-colors ${
                 mapMode === 'weather'
-                  ? 'bg-slate-800 text-cyan-400 font-semibold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-cyan-600 text-white font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Weather
+              Weather Nowcast
             </button>
             <button
               onClick={() => setMapMode('psi')}
-              className={`px-2.5 py-1 rounded-md transition-colors ${
+              className={`px-3 py-1 rounded-lg transition-colors ${
                 mapMode === 'psi'
-                  ? 'bg-slate-800 text-teal-400 font-semibold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-teal-600 text-white font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              Air Quality (PSI)
+              PSI Air Quality
             </button>
-          </div>
-
-          {/* Region selector */}
-          <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 p-1 rounded-lg text-xs">
-            {['All', 'North', 'South', 'East', 'West', 'Central'].map((reg) => (
-              <button
-                key={reg}
-                onClick={() => setSelectedRegion(reg)}
-                className={`px-2 py-1 rounded-md transition-colors ${
-                  selectedRegion === reg
-                    ? 'bg-slate-800 text-white font-medium shadow-sm'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                {reg}
-              </button>
-            ))}
           </div>
         </div>
       </div>
 
-      {/* Active Location Indicator Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-950/70 border border-slate-800/80 rounded-xl text-xs">
+      {/* Region Fast Pan Quicklinks & Search */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <span className="text-slate-500 font-medium">Fast Pan:</span>
+          <button
+            onClick={handleResetSingapore}
+            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 font-medium transition-colors"
+          >
+            All Island
+          </button>
+          <button
+            onClick={() => handlePanTo(1.292, 103.844, 14)}
+            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 font-medium transition-colors"
+          >
+            Downtown / City
+          </button>
+          <button
+            onClick={() => handlePanTo(1.357, 103.987, 13)}
+            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 font-medium transition-colors"
+          >
+            Changi / East
+          </button>
+          <button
+            onClick={() => handlePanTo(1.340, 103.705, 13)}
+            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 font-medium transition-colors"
+          >
+            Jurong / West
+          </button>
+          <button
+            onClick={() => handlePanTo(1.432, 103.786, 13)}
+            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 font-medium transition-colors"
+          >
+            Woodlands / North
+          </button>
+          <button
+            onClick={() => handlePanTo(1.243, 103.832, 14)}
+            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 font-medium transition-colors"
+          >
+            Sentosa / South
+          </button>
+        </div>
+
+        <div className="relative w-full sm:w-60">
+          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search planning area..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-cyan-500"
+          />
+        </div>
+      </div>
+
+      {/* Selected Location Telemetry Strip */}
+      <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs">
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-slate-400">
-            <span>Selected Location:</span>
-            <strong className="text-white text-sm font-semibold flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping inline-block"></span>
+          <div className="flex items-center gap-1.5 text-slate-600">
+            <span>Focused Station:</span>
+            <strong className="text-slate-900 text-sm font-bold flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-600 inline-block animate-pulse"></span>
               {currentLocation}
             </strong>
           </div>
-          <span className="text-slate-600 hidden sm:inline">|</span>
-          <span className="text-slate-400 hidden sm:inline">
-            Coordinates: {activeLocObj.lat.toFixed(3)}°N, {activeLocObj.lon.toFixed(3)}°E ({activeLocObj.region} Region)
+          <span className="text-slate-300 hidden sm:inline">|</span>
+          <span className="text-slate-500 hidden sm:inline">
+            Click any pin on SLA OneMap to calibrate live readings
           </span>
         </div>
 
-        <div className="flex items-center gap-3 font-mono tabular-nums text-slate-300">
-          <span className="text-cyan-400 font-bold">{currentTemp}°C</span>
-          <span className="text-slate-400">·</span>
+        <div className="flex items-center gap-3 font-mono tabular-nums text-slate-700">
+          <span className="text-cyan-700 font-bold">{currentTemp}°C</span>
+          <span className="text-slate-300">·</span>
           <span>{currentCondition}</span>
         </div>
       </div>
 
-      {/* SVG Map Container */}
-      <div className="relative w-full aspect-[16/9] min-h-[360px] max-h-[500px] bg-slate-950 rounded-xl border border-slate-800/80 overflow-hidden flex items-center justify-center p-2">
-        {/* Subtle Water & Maritime Grid background */}
-        <div className="absolute inset-0 opacity-15 bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none" />
+      {/* SLA OneMap Interactive Leaflet Canvas */}
+      <div
+        className={`relative w-full rounded-xl border border-slate-300 overflow-hidden shadow-inner transition-all ${
+          isFullscreen ? 'fixed inset-4 z-50 h-[calc(100vh-32px)]' : 'h-[520px]'
+        }`}
+      >
+        <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-        {/* Singapore Map SVG */}
-        <svg
-          viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-          className="w-full h-full object-contain filter drop-shadow-lg"
-          preserveAspectRatio="xMidYMid meet"
+        {/* SLA OneMap Verification Watermark / Badge */}
+        <div className="absolute top-3 left-3 z-20 bg-white/90 backdrop-blur-md border border-slate-200 px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 text-xs font-semibold text-slate-800">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span>SLA OneMap Live Tile Service</span>
+          <a
+            href="https://www.onemap.gov.sg/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-slate-400 hover:text-cyan-700"
+            title="Open official SLA OneMap portal"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+
+        {/* Toggle Fullscreen button */}
+        <button
+          onClick={() => setIsFullscreen((prev) => !prev)}
+          className="absolute top-3 right-3 z-20 p-2 bg-white/90 hover:bg-white text-slate-700 hover:text-slate-900 rounded-lg shadow-sm border border-slate-200 transition-colors"
+          title={isFullscreen ? 'Exit Fullscreen' : 'Expand Fullscreen'}
         >
-          <defs>
-            <linearGradient id="mainIslandGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#1e293b" />
-              <stop offset="50%" stopColor="#0f172a" />
-              <stop offset="100%" stopColor="#1e293b" />
-            </linearGradient>
+          {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+        </button>
 
-            <linearGradient id="selectedPulse" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="#06b6d4" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-
-          {/* Singapore Main Island & Surrounding Islands accurate landmass SVG paths */}
-          {/* Main Island: Pulau Ujong */}
-          <path
-            d="M 120 280 
-               C 130 250, 160 210, 210 180 
-               C 260 150, 310 130, 370 120 
-               C 430 110, 490 115, 540 135 
-               C 590 155, 640 180, 710 190 
-               C 770 200, 830 220, 850 250 
-               C 855 270, 830 300, 780 320 
-               C 730 340, 670 350, 600 360 
-               C 530 370, 480 375, 430 370 
-               C 380 365, 340 370, 290 380 
-               C 240 390, 180 400, 140 370 
-               C 110 345, 110 310, 120 280 Z"
-            fill="url(#mainIslandGrad)"
-            stroke="#334155"
-            strokeWidth="2"
-            strokeLinejoin="round"
-            className="transition-colors duration-500"
-          />
-
-          {/* Secondary Straits Contour Detail */}
-          <path
-            d="M 170 340 Q 230 320 300 330 T 450 330 T 620 330 T 760 300"
-            fill="none"
-            stroke="#1e293b"
-            strokeWidth="1.5"
-            strokeDasharray="4 4"
-            opacity="0.6"
-          />
-
-          {/* Jurong Island (Southwest) */}
-          <path
-            d="M 230 405 C 250 395, 290 400, 310 415 C 320 425, 305 445, 275 445 C 245 445, 220 425, 230 405 Z"
-            fill="#1e293b"
-            stroke="#334155"
-            strokeWidth="1.5"
-          />
-          <text x="270" y="430" fill="#64748b" fontSize="10" textAnchor="middle" fontFamily="sans-serif">Jurong Island</text>
-
-          {/* Sentosa Island (South) */}
-          <path
-            d="M 450 420 C 470 415, 520 420, 535 435 C 540 445, 515 455, 480 455 C 445 455, 435 435, 450 420 Z"
-            fill="#1e293b"
-            stroke="#334155"
-            strokeWidth="1.5"
-          />
-          <text x="490" y="442" fill="#64748b" fontSize="10" textAnchor="middle" fontFamily="sans-serif">Sentosa</text>
-
-          {/* Pulau Ubin (Northeast) */}
-          <path
-            d="M 730 140 C 750 135, 785 140, 795 152 C 800 160, 775 168, 750 168 C 725 168, 715 150, 730 140 Z"
-            fill="#1e293b"
-            stroke="#334155"
-            strokeWidth="1.5"
-          />
-          <text x="760" y="156" fill="#64748b" fontSize="9" textAnchor="middle" fontFamily="sans-serif">P. Ubin</text>
-
-          {/* Pulau Tekong (East) */}
-          <path
-            d="M 830 130 C 850 120, 885 125, 890 145 C 895 165, 865 180, 840 175 C 815 170, 815 145, 830 130 Z"
-            fill="#1e293b"
-            stroke="#334155"
-            strokeWidth="1.5"
-          />
-          <text x="860" y="155" fill="#64748b" fontSize="9" textAnchor="middle" fontFamily="sans-serif">P. Tekong</text>
-
-          {/* Region Label Annotations */}
-          <text x="440" y="150" fill="#475569" fontSize="11" fontWeight="bold" letterSpacing="2" textAnchor="middle">NORTH</text>
-          <text x="480" y="270" fill="#475569" fontSize="11" fontWeight="bold" letterSpacing="2" textAnchor="middle">CENTRAL</text>
-          <text x="730" y="270" fill="#475569" fontSize="11" fontWeight="bold" letterSpacing="2" textAnchor="middle">EAST</text>
-          <text x="250" y="270" fill="#475569" fontSize="11" fontWeight="bold" letterSpacing="2" textAnchor="middle">WEST</text>
-          <text x="480" y="385" fill="#475569" fontSize="11" fontWeight="bold" letterSpacing="2" textAnchor="middle">SOUTH</text>
-
-          {/* Interactive Pins / Hotspots */}
-          {filteredLocations.map((loc) => {
-            const { x, y } = projectToSvg(loc.lat, loc.lon);
-            const isSelected =
-              currentLocation.toLowerCase() === loc.name.toLowerCase() ||
-              currentLocation.toLowerCase().includes(loc.name.toLowerCase());
-            const areaCondition = forecastMap.get(loc.name.toLowerCase()) || 'Partly Cloudy';
-            const isRain =
-              areaCondition.toLowerCase().includes('rain') ||
-              areaCondition.toLowerCase().includes('shower') ||
-              areaCondition.toLowerCase().includes('thunder');
-
-            return (
-              <g
-                key={loc.name}
-                transform={`translate(${x}, ${y})`}
-                onClick={() => onSelectLocation(loc.name)}
-                onMouseEnter={() => setHoveredLocation(loc)}
-                onMouseLeave={() => setHoveredLocation(null)}
-                className="cursor-pointer transition-all duration-300 group"
-              >
-                {/* Pulsing Target Ring for Active Selected Pin */}
-                {isSelected && (
-                  <>
-                    <circle r="22" fill="none" stroke="#22d3ee" strokeWidth="1.5" opacity="0.4" className="animate-ping" />
-                    <circle r="15" fill="#0891b2" opacity="0.2" />
-                  </>
-                )}
-
-                {/* Marker Outer Circle */}
-                <circle
-                  r={isSelected ? 10 : 7}
-                  fill={isSelected ? '#06b6d4' : isRain ? '#38bdf8' : '#334155'}
-                  stroke={isSelected ? '#ffffff' : '#0f172a'}
-                  strokeWidth="2"
-                  className="transition-all duration-300 group-hover:scale-125"
-                />
-
-                {/* Center dot */}
-                <circle
-                  r={isSelected ? 4 : 2.5}
-                  fill={isSelected ? '#ffffff' : isRain ? '#ffffff' : '#94a3b8'}
-                />
-
-                {/* Pin Name Label */}
-                <text
-                  y={isSelected ? -16 : -12}
-                  fill={isSelected ? '#22d3ee' : '#cbd5e1'}
-                  fontSize={isSelected ? 11 : 9.5}
-                  fontWeight={isSelected ? 'bold' : 'normal'}
-                  textAnchor="middle"
-                  className="select-none pointer-events-none drop-shadow-md"
-                >
-                  {loc.name}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-
-        {/* Hover / Active Floating Card in Corner of Map */}
-        {(hoveredLocation || activeLocObj) && (
-          <div className="absolute bottom-3 left-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-3 text-xs shadow-xl max-w-xs transition-all pointer-events-none">
-            {(() => {
-              const displayLoc = hoveredLocation || activeLocObj;
-              const cond = forecastMap.get(displayLoc.name.toLowerCase()) || currentCondition;
-              return (
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-white text-sm">{displayLoc.name}</span>
-                    <span className="text-[10px] text-slate-400 px-1.5 py-0.5 bg-slate-950 border border-slate-800 rounded">
-                      {displayLoc.region}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-3 text-slate-300">
-                    <span className="truncate">{cond}</span>
-                    <div className="shrink-0">{getWeatherIcon(cond, 'w-4 h-4')}</div>
-                  </div>
-                  <div className="text-[11px] text-cyan-400 pt-1 border-t border-slate-800 font-medium">
-                    Click to load all real-time readings
-                  </div>
-                </div>
-              );
-            })()}
+        {/* Map Legend Overlay in bottom left */}
+        <div className="absolute bottom-4 left-4 z-20 bg-white/90 backdrop-blur-md border border-slate-200 px-3 py-2 rounded-xl shadow-md text-[11px] space-y-1 text-slate-700 max-w-xs pointer-events-auto">
+          <div className="font-bold text-slate-900 text-xs border-b border-slate-100 pb-1">
+            {mapMode === 'weather' ? 'NEA 2-Hr Nowcast' : 'NEA Regional PSI'}
           </div>
-        )}
-
-        {/* Legend in Top Right */}
-        <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur-md border border-slate-800/80 rounded-xl p-2.5 text-[11px] text-slate-400 space-y-1.5 pointer-events-none hidden sm:block">
-          <div className="font-semibold text-slate-200 text-xs mb-1">Map Legend</div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 border border-white inline-block"></span>
-            <span>Selected Location</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-sky-400 border border-slate-900 inline-block"></span>
-            <span>Rain / Showers Area</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-slate-600 border border-slate-900 inline-block"></span>
-            <span>Fair / Cloudy Area</span>
-          </div>
+          {mapMode === 'weather' ? (
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1 text-amber-600">
+                <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span> Fair / Cloudy
+              </span>
+              <span className="flex items-center gap-1 text-sky-600">
+                <span className="w-2 h-2 rounded-full bg-sky-500 inline-block"></span> Rain / Showers
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 font-mono">
+              <span className="text-emerald-700">0-50 Good</span>
+              <span>·</span>
+              <span className="text-teal-700">51-100 Mod</span>
+              <span>·</span>
+              <span className="text-amber-700">101+ Unhealthy</span>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Quick Location Pills under Map for Fast Selection */}
-      <div className="space-y-2">
-        <div className="text-xs text-slate-400 flex items-center justify-between">
-          <span>Popular Meteorological Locations:</span>
-          <span>{filteredLocations.length} locations available</span>
+      {/* Quick Select Planning Areas Pills */}
+      <div className="space-y-2 pt-1 border-t border-slate-200/80">
+        <div className="flex items-center justify-between text-xs text-slate-500">
+          <span>All 47 Singapore Planning Areas (Click to pan on SLA OneMap):</span>
+          <span className="font-mono text-[11px]">{filteredLocations.length} areas shown</span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto no-scrollbar py-1">
           {filteredLocations.map((loc) => {
             const isSelected =
-              currentLocation.toLowerCase() === loc.name.toLowerCase() ||
+              loc.name.toLowerCase() === currentLocation.toLowerCase() ||
               currentLocation.toLowerCase().includes(loc.name.toLowerCase());
-            const cond = forecastMap.get(loc.name.toLowerCase()) || 'Partly Cloudy';
-
             return (
               <button
                 key={loc.name}
-                onClick={() => onSelectLocation(loc.name)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs transition-colors ${
+                onClick={() => {
+                  onSelectLocation(loc.name);
+                  handlePanTo(loc.lat, loc.lon, 14);
+                }}
+                className={`text-xs px-2.5 py-1 rounded-lg border transition-all flex items-center gap-1.5 ${
                   isSelected
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 font-semibold'
-                    : 'bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300'
+                    ? 'bg-cyan-600 text-white font-semibold border-cyan-600 shadow-xs'
+                    : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
                 }`}
               >
-                <span>{loc.name}</span>
-                <span className="shrink-0">{getWeatherIcon(cond, 'w-3 h-3')}</span>
+                {isSelected && <Check className="w-3 h-3 text-white" />}
+                {loc.name}
               </button>
             );
           })}
